@@ -1,5 +1,5 @@
 #!/bin/bash
-set -eu
+set -eu -o pipefail
 
 N="${1:-2}"
 CLONEDIR="${2:-}"
@@ -28,8 +28,8 @@ done
 echo "Starting $N concurrent containers-run..."
 pids=()
 for i in $(seq 1 "$N"); do
-    datalad -C "clone_$i" containers-run -n bids-mriqc "hello from clone_$i" \
-        > "clone_${i}.log" 2>&1 &
+    ( datalad -C "clone_$i" containers-run -n bids-mriqc "hello from clone_$i" 2>&1 \
+        | while IFS= read -r line; do printf "%s [clone_%s] %s\n" "$(date +%H:%M:%S.%3N)" "$i" "$line"; done ) &
     pids+=($!)
 done
 
@@ -40,7 +40,6 @@ for i in $(seq 1 "$N"); do
         echo "  clone_$i: OK"
     else
         echo "  clone_$i: FAILED"
-        cat "clone_${i}.log"
         failures=$((failures + 1))
     fi
 done

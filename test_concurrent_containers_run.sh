@@ -26,9 +26,10 @@ for i in $(seq 1 "$N"); do
 done
 
 echo "Starting $N concurrent containers-run..."
+export GIT_ANNEX_DEBUG=1
 pids=()
 for i in $(seq 1 "$N"); do
-    ( datalad -C "clone_$i" containers-run -n bids-mriqc "hello from clone_$i" 2>&1 \
+    ( datalad -l debug -C "clone_$i" containers-run -n bids-mriqc "hello from clone_$i" 2>&1 \
         | while IFS= read -r line; do printf "%s [clone_%s] %s\n" "$(date +%H:%M:%S.%3N)" "$i" "$line"; done ) &
     pids+=($!)
 done

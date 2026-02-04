@@ -12,35 +12,63 @@
 ### What doesn't matter
 - File size (50MB, 500MB, 5GB all behave the same)
 - `datalad get` vs `containers-run` (same behavior)
-- Local filesystem (never reproduces locally)
+- Whether datalad is involved at all (pure git-annex reproduces it)
 
-### What does matter
+### What DOES matter
 - **No storage sibling in RIA** — forces subdataset clone to fall back to container_source
-- **Cross-filesystem** — RIA + container_source on shared lab FS, clones on /scratch
-- **Concurrent access to same source repo** — multiple git-annex gets from same origin
+- **Multiple clones with origin pointing to same source repo** — concurrent git-annex get
+- **Cluster filesystem** — reproduces on Discovery cluster (/dartfs + /scratch), not locally
+  - Local filesystem uses `cp --reflink=always` which succeeds concurrently
+  - Cluster likely uses rsync or cp without reflink, which contends
 
 ### Root cause (narrowed down)
-Two concurrent `datalad get` operations both clone the containers subdataset
-from the same source (container_source on shared FS). Both set `origin` to
-the same path. When both then do `git-annex get` from that same origin
-simultaneously, one fails with "failed to retrieve content from remote" (3x).
-The first to finish succeeds; the other fails.
+When two git-annex processes concurrently `git annex get` the same key from the
+same origin repo, one fails with "failed to retrieve content from remote" and
+"Unable to access these remotes: origin". The failing process retries 3 times
+(annex.retry=3) and fails all 3 within ~3.6 seconds — it never transfers any data.
+The succeeding process takes ~17 seconds to transfer 5GB normally.
+
+### Debug output details (from datalad debug run on cluster)
+```
+15:36:23.490  clone_2 starts git annex get (annex.retry=3)
+15:36:23.532  clone_1 starts git annex get (annex.retry=3)
+15:36:27.159  clone_1 FAILS (3.6s, all 3 retries failed instantly)
+              "Unable to access these remotes: origin"
+15:36:40.440  clone_2 succeeds (17s, transferred 5GB)
+```
+
+git-annex's own --debug output not yet captured on cluster (annex-only reproducer
+created but needs to be run there).
 
 ## Reproduction
-```bash
-# On lab FS:
-./setup.sh
 
-# Clones on /scratch, RIA + container_source on lab FS:
+### Full datalad reproducer (requires cluster)
+```bash
+# On lab FS (/dartfs):
+./setup.sh
+# Clones on /scratch:
 ./test_concurrent_get.sh 2 /scratch/f006rq8/concurrency-tests/
 ```
 
-## Results
-- **Cluster, cross-FS, BABS-like setup:** REPRODUCED — clone_1 OK, clone_2 FAILED
-- All local tests: PASS (cannot reproduce locally)
-- All tests with storage sibling enabled: PASS
+### Minimal annex-only reproducer (in annex-only/)
+```bash
+cd annex-only
+./setup.sh
+./test_concurrent_annex_get.sh 2 /scratch/f006rq8/concurrency-tests/
+```
 
-## Next steps
-- Investigate git-annex locking during concurrent get from same source repo
-- Try with retry logic / annex.retry setting
-- Consider workaround: pre-fetch container in a single job before array
+## Results summary
+| Test | Location | Result |
+|------|----------|--------|
+| Local clone, concurrent get (any size) | local | PASS |
+| RIA clone + storage sibling, concurrent get | local | PASS |
+| RIA clone + storage sibling, concurrent get | cluster cross-FS | PASS |
+| RIA clone + storage sibling, concurrent containers-run | cluster cross-FS | PASS |
+| RIA clone, NO storage sibling, concurrent get | local | PASS |
+| RIA clone, NO storage sibling, concurrent get | cluster cross-FS | **FAIL** |
+| RIA clone, NO storage sibling, concurrent containers-run | cluster cross-FS | **FAIL** |
+
+## Workaround options
+1. Add storage sibling to input RIA (proven to work)
+2. Pre-fetch container in a single setup job before submitting array
+3. Retry logic with backoff (annex.retry=3 already fails, may need longer delay)

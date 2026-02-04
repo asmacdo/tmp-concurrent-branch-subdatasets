@@ -16,8 +16,9 @@ cd "$PLAYGROUND"
 git init source
 cd source
 git annex init "source"
+git config annex.dotfiles true
 
-# Create 5GB fake container image
+# Create 500MB fake container image
 mkdir -p .datalad/environments/bids-mriqc
 dd if=/dev/urandom of=.datalad/environments/bids-mriqc/image bs=1M count=500
 git annex add .datalad/environments/bids-mriqc/image

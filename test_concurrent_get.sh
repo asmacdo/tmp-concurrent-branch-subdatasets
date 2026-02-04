@@ -2,12 +2,18 @@
 set -eu
 
 N="${1:-2}"
+CLONEDIR="${2:-}"
 
 BASEDIR="$(cd "$(dirname "$0")" && pwd)"
 PLAYGROUND="$BASEDIR/playground"
 RIA_STORE="$PLAYGROUND/ria_store"
 DSID=$(datalad -C "$PLAYGROUND/source_ds" -f'{infos[dataset][id]}' wtf -S dataset)
-TESTDIR="$PLAYGROUND/test_get_$$"
+
+if [ -n "$CLONEDIR" ]; then
+    TESTDIR="$CLONEDIR/test_get_$$"
+else
+    TESTDIR="$PLAYGROUND/test_get_$$"
+fi
 
 mkdir -p "$TESTDIR"
 cd "$TESTDIR"
@@ -46,9 +52,6 @@ else
     echo "RESULT: $failures/$N failed"
 fi
 
-# Cleanup
-cd "$PLAYGROUND"
-chmod -R u+w "$TESTDIR"
-rm -rf "$TESTDIR"
+echo "Cleanup: chmod -R u+w $TESTDIR && rm -rf $TESTDIR"
 
 exit "$failures"
